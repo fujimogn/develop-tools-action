@@ -16,7 +16,7 @@ asset="develop-tools-v${version}-linux-x86_64.tar.gz"
 install_dir=$(mktemp -d "$RUNNER_TEMP/develop-tools.XXXXXXXX")
 # On failure this directory is never added to PATH. The runner owns its cleanup.
 api() {
-  GH_TOKEN="$DEVELOP_TOOLS_TOKEN" GH_DEBUG= GH_HOST=github.com gh api "$@" 2>/dev/null || fail 'Release download failed.'
+  GH_TOKEN="$DEVELOP_TOOLS_TOKEN" GH_DEBUG='' GH_HOST=github.com gh api "$@" 2>/dev/null || fail 'Release download failed.'
 }
 api "repos/fujimogn/develop-meta/releases/tags/v${version}" > "$install_dir/release.json"
 asset_id() {
