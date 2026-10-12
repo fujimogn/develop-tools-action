@@ -34,13 +34,13 @@ Commit `.develop-tools.json` at your repository root:
 }
 ```
 
-Replace the example version and digest with the release version and its archive SHA256. The action reads this file from `GITHUB_WORKSPACE`, downloads `develop-tools-v<version>-linux-x86_64.tar.gz` and `SHA256SUMS` from the `v<version>` release, and verifies both the published checksum and the archive against the committed digest. A missing asset or checksum mismatch fails the step. Only verified executable regular files are installed and added to `GITHUB_PATH` for subsequent steps.
+Replace the example version and digest with the release version and its archive SHA256. The action reads this file from `GITHUB_WORKSPACE`, downloads `develop-tools-v<version>-linux-x86_64.tar.gz` and `SHA256SUMS` from the `v<version>` release, and verifies both the published checksum and the archive against the committed digest. A failed download is retried up to three attempts, five seconds apart. A missing asset or checksum mismatch fails the step. Only verified executable regular files are installed and added to `GITHUB_PATH` for subsequent steps.
 
 The tool version is controlled by your committed manifest. The action version (`v1.0.0` or the compatible major tag `v1`) controls the installation procedure independently. Pin the action to a full commit SHA if your workflow requires immutable action references.
 
 ## Development
 
-Run `bash tests/run.sh` for offline fixture tests covering successful installation, archive SHA256 mismatch, and token-free logs on success and API failure. Run `bash -n scripts/install-tools.sh tests/run.sh` for shell syntax validation. Tests use a mock GitHub CLI and never call an external API. Temporary fixture directories are printed at the end for inspection; GitHub-hosted runners clean up their workspace after the job.
+Run `bash tests/run.sh` for offline fixture tests covering successful installation, a retried transient download failure, a missing release asset, archive SHA256 mismatch, and token-free logs on success and API failure. Run `bash -n scripts/install-tools.sh tests/run.sh` for shell syntax validation. Tests use a mock GitHub CLI and never call an external API. Temporary fixture directories are printed at the end for inspection; GitHub-hosted runners clean up their workspace after the job.
 
 ## License
 

@@ -8,6 +8,8 @@ fail() { echo "::error::$1" >&2; exit 1; }
 : "${GITHUB_WORKSPACE:?GITHUB_WORKSPACE is required}"
 : "${RUNNER_TEMP:?RUNNER_TEMP is required}"
 : "${GITHUB_PATH:?GITHUB_PATH is required}"
+download_attempts=3
+download_retry_seconds=5
 manifest="$GITHUB_WORKSPACE/.develop-tools.json"
 # Never print the manifest or API response: both are external input.
 version=$(jq -er '.version | strings | select(test("^[0-9]+\\.[0-9]+\\.[0-9]+$"))' "$manifest" 2>/dev/null) || fail 'Invalid pinned version.'
@@ -15,17 +17,22 @@ expected=$(jq -er '.sha256["x86_64-unknown-linux-gnu"] | strings | select(test("
 asset="develop-tools-v${version}-linux-x86_64.tar.gz"
 install_dir=$(mktemp -d "$RUNNER_TEMP/develop-tools.XXXXXXXX")
 # On failure this directory is never added to PATH. The runner owns its cleanup.
-api() {
-  GH_TOKEN="$DEVELOP_TOOLS_TOKEN" GH_DEBUG='' GH_HOST=github.com gh api "$@" 2>/dev/null || fail 'Release download failed.'
+# One gh process looks up the release and fetches both assets concurrently.
+# Its output can carry API details, so none of it reaches the log. --clobber
+# lets a retry overwrite an asset left by a failed attempt.
+download() {
+  GH_TOKEN="$DEVELOP_TOOLS_TOKEN" GH_DEBUG='' GH_HOST=github.com gh release download "v${version}" \
+    --repo fujimogn/develop-meta --pattern "$asset" --pattern SHA256SUMS --dir "$install_dir" --clobber > /dev/null 2>&1
 }
-api "repos/fujimogn/develop-meta/releases/tags/v${version}" > "$install_dir/release.json"
-asset_id() {
-  jq -er --arg name "$1" '[.assets[] | select(.name == $name) | .id] | select(length == 1) | .[0] | numbers | select(. > 0 and floor == .)' "$install_dir/release.json" 2>/dev/null || fail 'Required release asset is missing or ambiguous.'
-}
-archive_id=$(asset_id "$asset")
-sums_id=$(asset_id SHA256SUMS)
-api "repos/fujimogn/develop-meta/releases/assets/$archive_id" -H 'Accept: application/octet-stream' > "$install_dir/$asset"
-api "repos/fujimogn/develop-meta/releases/assets/$sums_id" -H 'Accept: application/octet-stream' > "$install_dir/SHA256SUMS"
+attempt=1
+until download; do
+  (( attempt < download_attempts )) || fail 'Release download failed.'
+  echo "::warning::Release download attempt $attempt of $download_attempts failed; retrying." >&2
+  sleep "$download_retry_seconds"
+  attempt=$(( attempt + 1 ))
+done
+# gh exits 0 when only some of the patterns match a release asset.
+[[ -f "$install_dir/$asset" && -f "$install_dir/SHA256SUMS" ]] || fail 'Required release asset is missing.'
 release_sha=$(awk -v name="$asset" '$2 == name || $2 == "*" name {count++; digest=$1} END {if(count == 1) print digest; else exit 1}' "$install_dir/SHA256SUMS") || fail 'Invalid release checksum list.'
 [[ "$release_sha" == "$expected" ]] || fail 'Release checksum differs from the pinned SHA256.'
 actual=$(sha256sum "$install_dir/$asset")

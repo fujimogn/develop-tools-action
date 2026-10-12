@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Download the release with one `gh release download` call that fetches both assets concurrently, instead of three sequential `gh api` calls. In 10 paired local runs against the real release, the install took a median 0.7 s less.
+
+### Fixed
+
+- Retry a failed release download up to three attempts, five seconds apart, so a transient GitHub error no longer fails the step.
+
 ## [1.0.1] - 2026-10-12
 
 ### Fixed

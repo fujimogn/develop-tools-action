@@ -16,35 +16,47 @@ cat > "$tmp/mock/gh" <<'MOCK'
 set -euo pipefail
 [[ "$GH_TOKEN" == "$TEST_TOKEN" ]]
 [[ "${GH_DEBUG:-}" == '' && "$GH_HOST" == github.com ]]
-[[ "$1" == api ]]
-case "$2" in
-  repos/fujimogn/develop-meta/releases/tags/v1.2.3)
-    printf '{"assets":[{"id":11,"name":"develop-tools-v1.2.3-linux-x86_64.tar.gz"},{"id":12,"name":"SHA256SUMS"}]}' ;;
-  repos/fujimogn/develop-meta/releases/assets/11)
-    [[ "$3" == -H && "$4" == 'Accept: application/octet-stream' ]]
-    cat "$FIXTURE/develop-tools-v1.2.3-linux-x86_64.tar.gz" ;;
-  repos/fujimogn/develop-meta/releases/assets/12)
-    cat "$FIXTURE/SHA256SUMS" ;;
-  *) exit 1 ;;
-esac
-if [[ ${API_FAIL:-0} == 1 ]]; then
+asset=develop-tools-v1.2.3-linux-x86_64.tar.gz
+[[ $# == 12 && "${*:1:9}" == "release download v1.2.3 --repo fujimogn/develop-meta --pattern $asset --pattern SHA256SUMS" ]]
+[[ ${10} == --dir && -d ${11} && ${12} == --clobber ]]
+echo call >> "$GH_CALLS"
+if (( $(wc -l < "$GH_CALLS") <= ${GH_FAILING_CALLS:-0} )); then
   echo "$GH_TOKEN" >&2
   exit 1
 fi
+# Like gh, skip a pattern that matches no release asset.
+[[ ${MISSING_ARCHIVE:-0} == 1 ]] || cp "$FIXTURE/$asset" "${11}/"
+cp "$FIXTURE/SHA256SUMS" "${11}/"
 MOCK
-chmod +x "$tmp/mock/gh"
+# Retries must not slow the tests down.
+printf '#!/bin/sh\n' > "$tmp/mock/sleep"
+chmod +x "$tmp/mock/gh" "$tmp/mock/sleep"
 export TEST_TOKEN='fixture-secret-do-not-print' DEVELOP_TOOLS_TOKEN='fixture-secret-do-not-print'
 export FIXTURE="$tmp/fixture" GITHUB_WORKSPACE="$tmp/workspace" RUNNER_TEMP="$tmp/runner" GITHUB_PATH="$tmp/path"
-export PATH="$tmp/mock:$PATH" GH_DEBUG=api
+export GH_CALLS="$tmp/gh-calls" PATH="$tmp/mock:$PATH" GH_DEBUG=api
 manifest() { printf '{"version":"1.2.3","sha256":{"x86_64-unknown-linux-gnu":"%s"}}\n' "$1" > "$tmp/workspace/.develop-tools.json"; }
 check_secret() { if grep -Fq -- "$TEST_TOKEN" "$tmp/log"; then echo 'FAIL: token leaked'; exit 1; fi; }
+reset_runner() { : > "$GITHUB_PATH"; : > "$GH_CALLS"; }
 manifest "$sha"
+reset_runner
 bash -x "$root/scripts/install-tools.sh" > "$tmp/log" 2>&1
 check_secret
 installed=$(cat "$GITHUB_PATH")
 [[ $("$installed/develop-docs-check") == fixture-tool ]]
 echo 'PASS: successful install and executable on PATH'
-: > "$GITHUB_PATH"
+reset_runner
+GH_FAILING_CALLS=1 bash -x "$root/scripts/install-tools.sh" > "$tmp/log" 2>&1
+check_secret
+grep -q -- '::warning::Release download attempt 1 of' "$tmp/log"
+installed=$(cat "$GITHUB_PATH")
+[[ $("$installed/develop-docs-check") == fixture-tool ]]
+echo 'PASS: transient download failure is retried'
+reset_runner
+if MISSING_ARCHIVE=1 bash "$root/scripts/install-tools.sh" > "$tmp/log" 2>&1; then echo 'FAIL: accepted missing asset'; exit 1; fi
+grep -q -- 'Required release asset is missing' "$tmp/log"
+[[ ! -s "$GITHUB_PATH" ]]
+echo 'PASS: missing release asset fails before PATH update'
+reset_runner
 # Make release metadata agree with the pin, but corrupt the actual archive.
 printf 'corruption' >> "$tmp/fixture/$asset"
 if bash "$root/scripts/install-tools.sh" > "$tmp/log" 2>&1; then echo 'FAIL: accepted checksum mismatch'; exit 1; fi
@@ -52,8 +64,9 @@ grep -q -- 'Archive SHA256 mismatch' "$tmp/log"
 [[ ! -s "$GITHUB_PATH" ]]
 check_secret
 echo 'PASS: SHA256 mismatch fails before PATH update'
-if API_FAIL=1 bash -x "$root/scripts/install-tools.sh" > "$tmp/log" 2>&1; then echo 'FAIL: API error succeeded'; exit 1; fi
+reset_runner
+if GH_FAILING_CALLS=99 bash -x "$root/scripts/install-tools.sh" > "$tmp/log" 2>&1; then echo 'FAIL: API error succeeded'; exit 1; fi
 check_secret
-grep -q -- 'Release download failed' "$tmp/log"
+grep -q -- '::error::Release download failed' "$tmp/log"
 [[ ! -s "$GITHUB_PATH" ]]
 echo 'PASS: token absent from success and failure logs (including shell tracing)'
