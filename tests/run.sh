@@ -28,15 +28,15 @@ fi
 [[ ${MISSING_ARCHIVE:-0} == 1 ]] || cp "$FIXTURE/$asset" "${11}/"
 cp "$FIXTURE/SHA256SUMS" "${11}/"
 MOCK
-# Retries must not slow the tests down.
-printf '#!/bin/sh\n' > "$tmp/mock/sleep"
+# Retries must not slow the tests down; record the delays instead.
+printf '#!/bin/sh\necho "$@" >> "$SLEEP_CALLS"\n' > "$tmp/mock/sleep"
 chmod +x "$tmp/mock/gh" "$tmp/mock/sleep"
 export TEST_TOKEN='fixture-secret-do-not-print' DEVELOP_TOOLS_TOKEN='fixture-secret-do-not-print'
 export FIXTURE="$tmp/fixture" GITHUB_WORKSPACE="$tmp/workspace" RUNNER_TEMP="$tmp/runner" GITHUB_PATH="$tmp/path"
-export GH_CALLS="$tmp/gh-calls" PATH="$tmp/mock:$PATH" GH_DEBUG=api
+export GH_CALLS="$tmp/gh-calls" SLEEP_CALLS="$tmp/sleep-calls" PATH="$tmp/mock:$PATH" GH_DEBUG=api
 manifest() { printf '{"version":"1.2.3","sha256":{"x86_64-unknown-linux-gnu":"%s"}}\n' "$1" > "$tmp/workspace/.develop-tools.json"; }
 check_secret() { if grep -Fq -- "$TEST_TOKEN" "$tmp/log"; then echo 'FAIL: token leaked'; exit 1; fi; }
-reset_runner() { : > "$GITHUB_PATH"; : > "$GH_CALLS"; }
+reset_runner() { : > "$GITHUB_PATH"; : > "$GH_CALLS"; : > "$SLEEP_CALLS"; }
 manifest "$sha"
 reset_runner
 bash -x "$root/scripts/install-tools.sh" > "$tmp/log" 2>&1
@@ -68,5 +68,6 @@ reset_runner
 if GH_FAILING_CALLS=99 bash -x "$root/scripts/install-tools.sh" > "$tmp/log" 2>&1; then echo 'FAIL: API error succeeded'; exit 1; fi
 check_secret
 grep -q -- '::error::Release download failed' "$tmp/log"
+[[ $(wc -l < "$GH_CALLS") == 3 && $(cat "$SLEEP_CALLS") == $'5\n5' ]]
 [[ ! -s "$GITHUB_PATH" ]]
 echo 'PASS: token absent from success and failure logs (including shell tracing)'
