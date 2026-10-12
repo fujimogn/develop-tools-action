@@ -37,7 +37,7 @@ export TEST_TOKEN='fixture-secret-do-not-print' DEVELOP_TOOLS_TOKEN='fixture-sec
 export FIXTURE="$tmp/fixture" GITHUB_WORKSPACE="$tmp/workspace" RUNNER_TEMP="$tmp/runner" GITHUB_PATH="$tmp/path"
 export PATH="$tmp/mock:$PATH" GH_DEBUG=api
 manifest() { printf '{"version":"1.2.3","sha256":{"x86_64-unknown-linux-gnu":"%s"}}\n' "$1" > "$tmp/workspace/.develop-tools.json"; }
-check_secret() { if rg -Fq "$TEST_TOKEN" "$tmp/log"; then echo 'FAIL: token leaked'; exit 1; fi; }
+check_secret() { if grep -Fq -- "$TEST_TOKEN" "$tmp/log"; then echo 'FAIL: token leaked'; exit 1; fi; }
 manifest "$sha"
 bash -x "$root/scripts/install-tools.sh" > "$tmp/log" 2>&1
 check_secret
@@ -48,12 +48,12 @@ echo 'PASS: successful install and executable on PATH'
 # Make release metadata agree with the pin, but corrupt the actual archive.
 printf 'corruption' >> "$tmp/fixture/$asset"
 if bash "$root/scripts/install-tools.sh" > "$tmp/log" 2>&1; then echo 'FAIL: accepted checksum mismatch'; exit 1; fi
-rg -q 'Archive SHA256 mismatch' "$tmp/log"
+grep -q -- 'Archive SHA256 mismatch' "$tmp/log"
 [[ ! -s "$GITHUB_PATH" ]]
 check_secret
 echo 'PASS: SHA256 mismatch fails before PATH update'
 if API_FAIL=1 bash -x "$root/scripts/install-tools.sh" > "$tmp/log" 2>&1; then echo 'FAIL: API error succeeded'; exit 1; fi
 check_secret
-rg -q 'Release download failed' "$tmp/log"
+grep -q -- 'Release download failed' "$tmp/log"
 [[ ! -s "$GITHUB_PATH" ]]
 echo 'PASS: token absent from success and failure logs (including shell tracing)'
