@@ -1,0 +1,15 @@
+name: Install develop tools
+description: Install checksum-pinned develop tools from a private GitHub Release.
+inputs:
+  token:
+    description: GitHub App installation token with Contents read access to fujimogn/develop-meta.
+    required: true
+runs:
+  using: composite
+  steps:
+    - name: Install pinned tools
+      shell: bash
+      env:
+        DEVELOP_TOOLS_TOKEN: ${{ inputs.token }}
+        DEVELOP_TOOLS_ACTION_PATH: ${{ github.action_path }}
+      run: bash "$DEVELOP_TOOLS_ACTION_PATH/scripts/install-tools.sh"
