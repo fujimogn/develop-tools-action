@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.0] - Unreleased
+
+### Changed
+
+- Continue the action after 1.0.x under a 0.x version, aligned with the develop-meta island tool version policy (ADR-0031): patch for changes callers can adopt without adjustment, minor when callers must adjust, and major only after an explicit stability declaration.
+- Document a commit-SHA-pinned `v0.2.0` example. The published 1.0.x tags and the working `v1` tag remain at their existing commits.
+
 ## [1.0.2] - 2026-10-13
 
 ### Changed
