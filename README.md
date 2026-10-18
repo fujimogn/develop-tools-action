@@ -16,7 +16,7 @@ After checking out your repository, use these two steps:
     permission-contents: read
 
 - name: Install develop tools
-  uses: fujimogn/develop-tools-action@<v0.2.0 commit SHA> # v0.2.0
+  uses: fujimogn/develop-tools-action@61618529ddb05a6b36df8c64d0b298f95dec6f15 # v0.2.0
   with:
     token: ${{ steps.develop-tools-token.outputs.token }}
 ```
@@ -36,7 +36,7 @@ Commit `.develop-tools.json` at your repository root:
 
 Replace the example version and digest with the release version and its archive SHA256. The action reads this file from `GITHUB_WORKSPACE`, downloads `develop-tools-v<version>-linux-x86_64.tar.gz` and `SHA256SUMS` from the `v<version>` release, and verifies both the published checksum and the archive against the committed digest. A failed download is retried up to three attempts, five seconds apart. A missing asset or checksum mismatch fails the step. Only verified executable regular files are installed and added to `GITHUB_PATH` for subsequent steps.
 
-The tool version is controlled by your committed manifest. The action version controls the installation procedure independently. Replace `<v0.2.0 commit SHA>` in the example with the full commit SHA targeted by the `v0.2.0` tag after that tag is created. The published `v1.0.0` through `v1.0.2` tags and the working `v1` tag remain available at their existing commits.
+The tool version is controlled by your committed manifest. The action version controls the installation procedure independently. The example pins the full commit SHA targeted by the `v0.2.0` tag. The published `v1.0.0` through `v1.0.2` tags and the working `v1` tag remain available at their existing commits.
 
 ## Development
 
