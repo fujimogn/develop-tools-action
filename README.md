@@ -1,46 +1,64 @@
 # develop-tools-action
 
-Install checksum-pinned develop tools from the private `fujimogn/develop-meta` GitHub Release. The action supports Linux x86_64 runners and requires Bash, GitHub CLI (`gh`), `jq`, Python 3, and `sha256sum`, available on GitHub-hosted Ubuntu runners.
+Install checksum-pinned binaries from the public [`fujimogn/develop-tools`](https://github.com/fujimogn/develop-tools) Release. The action uses its bundled `resolve` script to check the version and SHA256 in the calling repository's `.develop-tools.json`; it does not need a token. Linux x86_64 and macOS arm64 are supported.
 
-After checking out your repository, use these two steps:
+After checking out the repository, pin this action to a full commit SHA:
 
 ```yaml
-- name: Create release reader token
-  id: develop-tools-token
-  uses: actions/create-github-app-token@v2
-  with:
-    app-id: ${{ vars.DEVELOP_TOOLS_APP_ID }}
-    private-key: ${{ secrets.DEVELOP_TOOLS_APP_PRIVATE_KEY }}
-    owner: fujimogn
-    repositories: develop-meta
-    permission-contents: read
-
 - name: Install develop tools
-  uses: fujimogn/develop-tools-action@61618529ddb05a6b36df8c64d0b298f95dec6f15 # v0.2.0
-  with:
-    token: ${{ steps.develop-tools-token.outputs.token }}
+  uses: fujimogn/develop-tools-action@<published-commit-sha>
 ```
 
-The GitHub App must be installed on `fujimogn/develop-meta` with Contents read permission. The caller supplies the App credentials; this action contains no credentials and does not print the installation token.
-
-Commit `.develop-tools.json` at your repository root:
+Commit `.develop-tools.json` at the repository root. Its `version` selects a `v<version>` Release, and `sha256` pins each target's archive:
 
 ```json
 {
-  "version": "1.2.3",
+  "version": "0.6.0",
   "sha256": {
-    "x86_64-unknown-linux-gnu": "<64 lowercase hexadecimal characters>"
+    "x86_64-unknown-linux-gnu": "<64 lowercase hexadecimal characters>",
+    "aarch64-apple-darwin": "<64 lowercase hexadecimal characters>"
   }
 }
 ```
 
-Replace the example version and digest with the release version and its archive SHA256. The action reads this file from `GITHUB_WORKSPACE`, downloads `develop-tools-v<version>-linux-x86_64.tar.gz` and `SHA256SUMS` from the `v<version>` release, and verifies both the published checksum and the archive against the committed digest. A failed download is retried up to three attempts, five seconds apart. A missing asset or checksum mismatch fails the step. Only verified executable regular files are installed and added to `GITHUB_PATH` for subsequent steps.
+The resolver fetches the matching archive and `SHA256SUMS` from the public Release, verifies both checksums, and caches the verified binaries. The action adds that cache directory to `GITHUB_PATH` for later steps. A missing asset or checksum mismatch fails the step. Set `DEVELOP_TOOLS_BIN_DIR` to use an existing local directory instead.
 
-The tool version is controlled by your committed manifest. The action version controls the installation procedure independently. The example pins the full commit SHA targeted by the `v0.2.0` tag. The published `v1.0.0` through `v1.0.2` tags and the working `v1` tag remain available at their existing commits.
+The action version controls the installation procedure independently of the tool version in `.develop-tools.json`. Replace `<published-commit-sha>` with the full SHA of the published action commit before distributing a workflow. Existing action tags remain at their historical commits.
+
+## Platform check
+
+`.github/workflows/platform-check.yml` is a reusable workflow that builds and tests a Cargo workspace on each OS the calling repository declares. Call it from a job, pinned to a full commit SHA:
+
+```yaml
+jobs:
+  platforms:
+    uses: fujimogn/develop-tools-action/.github/workflows/platform-check.yml@<published-commit-sha>
+```
+
+Declare the OS list and the check in `.develop-tools.json`:
+
+```json
+{
+  "platforms": ["linux", "macos"],
+  "platformCheck": {
+    "cargoWorkspace": "tools",
+    "bun": true,
+    "setup": "./bin/ci-install --frozen-lockfile"
+  },
+  "release": { "preflightWorkflow": "ci.yml" }
+}
+```
+
+- `platforms`: a non-empty list of `linux`, `macos` and `windows` without duplicates. Without it the workflow starts no OS job. `release.preflightWorkflow` is required with it.
+- `platformCheck.cargoWorkspace`: the workspace path relative to the repository root, `/`-separated, without `.` or `..` segments, a leading or trailing `/`, `\` or `:` (no drive letters). Defaults to `.`.
+- `platformCheck.bun`: install Bun from `.tool-versions` before the tests. Defaults to `false`.
+- `platformCheck.setup`: a command run with bash from the repository root before the tests.
+
+Each OS runs as a job named `platform (<os>)` (seen as `<caller job> / platform (<os>)` in the caller's run) with clippy, a release build, nextest and doc tests. Jobs do not stop each other on failure.
 
 ## Development
 
-Run `bash tests/run.sh` for offline fixture tests covering successful installation, a retried transient download failure, a missing release asset, archive SHA256 mismatch, and token-free logs on success and API failure. Run `bash -n scripts/install-tools.sh tests/run.sh` for shell syntax validation. Tests use a mock GitHub CLI and never call an external API. Temporary fixture directories are printed at the end for inspection; GitHub-hosted runners clean up their workspace after the job.
+Run `bash tests/run.sh` (requires `jq`) for the offline action and platform-check contract tests and `sh -n resolve` for resolver syntax after the resolver copy is added. The `resolve` file is copied byte for byte from the source in develop-tools.
 
 ## License
 

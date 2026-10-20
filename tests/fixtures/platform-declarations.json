@@ -1,0 +1,556 @@
+{
+  "cases": [
+    {
+      "name": "linux",
+      "manifest": {
+        "platforms": [
+          "linux"
+        ],
+        "release": {
+          "preflightWorkflow": "ci.yml"
+        }
+      },
+      "expect": {
+        "platforms": [
+          "linux"
+        ]
+      }
+    },
+    {
+      "name": "valid-linux-macos",
+      "manifest": {
+        "integrationBranch": "develop",
+        "platforms": [
+          "linux",
+          "macos"
+        ],
+        "platformCheck": {
+          "cargoWorkspace": "tools",
+          "bun": true,
+          "setup": "./bin/ci-install --frozen-lockfile"
+        },
+        "release": {
+          "preflightWorkflow": "ci.yml",
+          "versionFiles": [
+            {
+              "path": "tools/Cargo.toml",
+              "kind": "cargo-workspace"
+            }
+          ]
+        }
+      },
+      "expect": {
+        "platforms": [
+          "linux",
+          "macos"
+        ]
+      }
+    },
+    {
+      "name": "linux-macos-windows",
+      "manifest": {
+        "platforms": [
+          "windows",
+          "linux",
+          "macos"
+        ],
+        "platformCheck": {
+          "cargoWorkspace": "packages/cli"
+        },
+        "release": {
+          "preflightWorkflow": "release-check.yml"
+        }
+      },
+      "expect": {
+        "platforms": [
+          "windows",
+          "linux",
+          "macos"
+        ]
+      }
+    },
+    {
+      "name": "no-declaration",
+      "manifest": {
+        "version": "0.1.0",
+        "sha256": {}
+      },
+      "expect": {
+        "platforms": []
+      }
+    },
+    {
+      "name": "cargo-workspace-root",
+      "manifest": {
+        "platforms": [
+          "macos"
+        ],
+        "platformCheck": {
+          "cargoWorkspace": "."
+        },
+        "release": {
+          "preflightWorkflow": "ci.yml"
+        }
+      },
+      "expect": {
+        "platforms": [
+          "macos"
+        ]
+      }
+    },
+    {
+      "name": "invalid-unknown-os",
+      "manifest": {
+        "platforms": [
+          "linux",
+          "freebsd"
+        ],
+        "release": {
+          "preflightWorkflow": "ci.yml"
+        }
+      },
+      "expect": {
+        "error": true
+      }
+    },
+    {
+      "name": "invalid-missing-preflight",
+      "manifest": {
+        "platforms": [
+          "linux",
+          "macos"
+        ],
+        "release": {
+          "versionFiles": [
+            {
+              "path": "tools/Cargo.toml",
+              "kind": "cargo-workspace"
+            }
+          ]
+        }
+      },
+      "expect": {
+        "error": true
+      }
+    },
+    {
+      "name": "invalid-empty-platforms",
+      "manifest": {
+        "platforms": [],
+        "release": {
+          "preflightWorkflow": "ci.yml"
+        }
+      },
+      "expect": {
+        "error": true
+      }
+    },
+    {
+      "name": "invalid-duplicate-platform",
+      "manifest": {
+        "platforms": [
+          "linux",
+          "linux"
+        ],
+        "release": {
+          "preflightWorkflow": "ci.yml"
+        }
+      },
+      "expect": {
+        "error": true
+      }
+    },
+    {
+      "name": "invalid-runner-os-name",
+      "manifest": {
+        "platforms": [
+          "Linux"
+        ],
+        "release": {
+          "preflightWorkflow": "ci.yml"
+        }
+      },
+      "expect": {
+        "error": true
+      }
+    },
+    {
+      "name": "invalid-platforms-string",
+      "manifest": {
+        "platforms": "linux",
+        "release": {
+          "preflightWorkflow": "ci.yml"
+        }
+      },
+      "expect": {
+        "error": true
+      }
+    },
+    {
+      "name": "invalid-platforms-null",
+      "manifest": {
+        "platforms": null,
+        "release": {
+          "preflightWorkflow": "ci.yml"
+        }
+      },
+      "expect": {
+        "error": true
+      }
+    },
+    {
+      "name": "invalid-empty-preflight",
+      "manifest": {
+        "platforms": [
+          "linux"
+        ],
+        "release": {
+          "preflightWorkflow": ""
+        }
+      },
+      "expect": {
+        "error": true
+      }
+    },
+    {
+      "name": "invalid-release-array",
+      "manifest": {
+        "release": []
+      },
+      "expect": {
+        "error": true
+      }
+    },
+    {
+      "name": "invalid-bun",
+      "manifest": {
+        "platformCheck": {
+          "bun": "yes"
+        }
+      },
+      "expect": {
+        "error": true
+      }
+    },
+    {
+      "name": "invalid-setup-empty",
+      "manifest": {
+        "platformCheck": {
+          "setup": ""
+        }
+      },
+      "expect": {
+        "error": true
+      }
+    },
+    {
+      "name": "invalid-platform-check-array",
+      "manifest": {
+        "platformCheck": []
+      },
+      "expect": {
+        "error": true
+      }
+    },
+    {
+      "name": "invalid-integration-branch",
+      "manifest": {
+        "integrationBranch": 1
+      },
+      "expect": {
+        "error": true
+      }
+    },
+    {
+      "name": "invalid-not-object",
+      "manifest": null,
+      "expect": {
+        "error": true
+      }
+    },
+    {
+      "name": "invalid-cargo-workspace-empty",
+      "manifest": {
+        "platformCheck": {
+          "cargoWorkspace": ""
+        }
+      },
+      "expect": {
+        "error": true
+      }
+    },
+    {
+      "name": "invalid-cargo-workspace-absolute",
+      "manifest": {
+        "platformCheck": {
+          "cargoWorkspace": "/tools"
+        }
+      },
+      "expect": {
+        "error": true
+      }
+    },
+    {
+      "name": "invalid-cargo-workspace-parent",
+      "manifest": {
+        "platformCheck": {
+          "cargoWorkspace": "../tools"
+        }
+      },
+      "expect": {
+        "error": true
+      }
+    },
+    {
+      "name": "invalid-cargo-workspace-dot-segment",
+      "manifest": {
+        "platformCheck": {
+          "cargoWorkspace": "./tools"
+        }
+      },
+      "expect": {
+        "error": true
+      }
+    },
+    {
+      "name": "invalid-cargo-workspace-empty-segment",
+      "manifest": {
+        "platformCheck": {
+          "cargoWorkspace": "packages//cli"
+        }
+      },
+      "expect": {
+        "error": true
+      }
+    },
+    {
+      "name": "invalid-cargo-workspace-trailing-slash",
+      "manifest": {
+        "platformCheck": {
+          "cargoWorkspace": "tools/"
+        }
+      },
+      "expect": {
+        "error": true
+      }
+    },
+    {
+      "name": "invalid-cargo-workspace-backslash",
+      "manifest": {
+        "platformCheck": {
+          "cargoWorkspace": "packages\\cli"
+        }
+      },
+      "expect": {
+        "error": true
+      }
+    },
+    {
+      "name": "invalid-os-prefix-win",
+      "manifest": {
+        "platforms": [
+          "win"
+        ],
+        "release": {
+          "preflightWorkflow": "ci.yml"
+        }
+      },
+      "expect": {
+        "error": true
+      }
+    },
+    {
+      "name": "invalid-os-prefix-lin",
+      "manifest": {
+        "platforms": [
+          "lin"
+        ],
+        "release": {
+          "preflightWorkflow": "ci.yml"
+        }
+      },
+      "expect": {
+        "error": true
+      }
+    },
+    {
+      "name": "invalid-os-empty",
+      "manifest": {
+        "platforms": [
+          ""
+        ],
+        "release": {
+          "preflightWorkflow": "ci.yml"
+        }
+      },
+      "expect": {
+        "error": true
+      }
+    },
+    {
+      "name": "invalid-cargo-workspace-drive",
+      "manifest": {
+        "platforms": [
+          "windows"
+        ],
+        "platformCheck": {
+          "cargoWorkspace": "C:/tools"
+        },
+        "release": {
+          "preflightWorkflow": "ci.yml"
+        }
+      },
+      "expect": {
+        "error": true
+      }
+    },
+    {
+      "name": "invalid-cargo-workspace-drive-relative",
+      "manifest": {
+        "platforms": [
+          "windows"
+        ],
+        "platformCheck": {
+          "cargoWorkspace": "c:tools"
+        },
+        "release": {
+          "preflightWorkflow": "ci.yml"
+        }
+      },
+      "expect": {
+        "error": true
+      }
+    },
+    {
+      "name": "adr-contract-bounds",
+      "manifest": {
+        "adrMigratedThrough": 0,
+        "adrReservedNumbers": [],
+        "adrSanitizedNumbers": [
+          1,
+          4294967295
+        ]
+      },
+      "expect": {
+        "platforms": []
+      }
+    },
+    {
+      "name": "adr-duplicate-numbers",
+      "manifest": {
+        "adrReservedNumbers": [
+          20,
+          20
+        ]
+      },
+      "expect": {
+        "platforms": []
+      }
+    },
+    {
+      "name": "invalid-adr-migrated-negative",
+      "manifest": {
+        "adrMigratedThrough": -1
+      },
+      "expect": {
+        "error": true
+      }
+    },
+    {
+      "name": "invalid-adr-migrated-fraction",
+      "manifest": {
+        "adrMigratedThrough": 1.5
+      },
+      "expect": {
+        "error": true
+      }
+    },
+    {
+      "name": "invalid-adr-migrated-string",
+      "manifest": {
+        "adrMigratedThrough": "21"
+      },
+      "expect": {
+        "error": true
+      }
+    },
+    {
+      "name": "invalid-adr-migrated-null",
+      "manifest": {
+        "adrMigratedThrough": null
+      },
+      "expect": {
+        "error": true
+      }
+    },
+    {
+      "name": "invalid-adr-migrated-over-u32",
+      "manifest": {
+        "adrMigratedThrough": 4294967296
+      },
+      "expect": {
+        "error": true
+      }
+    },
+    {
+      "name": "invalid-adr-migrated-array",
+      "manifest": {
+        "adrMigratedThrough": [
+          21
+        ]
+      },
+      "expect": {
+        "error": true
+      }
+    },
+    {
+      "name": "invalid-adr-reserved-null",
+      "manifest": {
+        "adrReservedNumbers": null
+      },
+      "expect": {
+        "error": true
+      }
+    },
+    {
+      "name": "invalid-adr-reserved-number",
+      "manifest": {
+        "adrReservedNumbers": 20
+      },
+      "expect": {
+        "error": true
+      }
+    },
+    {
+      "name": "invalid-adr-reserved-string-item",
+      "manifest": {
+        "adrReservedNumbers": [
+          "20"
+        ]
+      },
+      "expect": {
+        "error": true
+      }
+    },
+    {
+      "name": "invalid-adr-sanitized-fraction-item",
+      "manifest": {
+        "adrSanitizedNumbers": [
+          1.5
+        ]
+      },
+      "expect": {
+        "error": true
+      }
+    },
+    {
+      "name": "invalid-adr-sanitized-object",
+      "manifest": {
+        "adrSanitizedNumbers": {}
+      },
+      "expect": {
+        "error": true
+      }
+    }
+  ]
+}

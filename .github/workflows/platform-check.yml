@@ -1,0 +1,163 @@
+name: platform check
+
+# Build and test the Cargo workspace on every OS the calling repository declares in
+# `.develop-tools.json` (`platforms`). Callers run it before a release; the OS list comes only
+# from the declaration, so no OS is treated as the primary one.
+on:
+  workflow_call:
+
+# In a reusable workflow the workflow name in the github context is the caller's name, which would
+# put this run in the caller's group and keep its jobs from being created. Keep a fixed prefix.
+concurrency:
+  group: platform-check-${{ github.event_name }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  plan:
+    # Any runner can read the declaration; this choice does not make an OS primary.
+    runs-on: ubuntu-latest
+    outputs:
+      include: ${{ steps.plan.outputs.include }}
+      check: ${{ steps.plan.outputs.check }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # The job checks out the caller, so this script cannot live in a separate file of this
+      # repository. tests/run.sh extracts and runs this block.
+      - name: Plan platforms
+        id: plan
+        run: |
+          set -euo pipefail
+          # The only OS -> runner table.
+          runners='{"linux":"ubuntu-latest","macos":"macos-latest","windows":"windows-latest"}'
+          plan=$(jq -c --argjson runners "$runners" '
+            def opt_string($object; $key; $label):
+              if ($object | has($key)) | not then null
+              elif ($object[$key] | type) == "string" and $object[$key] != "" then $object[$key]
+              else error("invalid \($label)") end;
+            def relative_workspace:
+              . == "." or (. != "" and (contains("\\") or contains(":") | not)
+                and (split("/") | all(. != "" and . != "." and . != "..")));
+            # Same as adr_number in Rust: a non-negative integer that fits u32. This value check cannot
+            # see how a number was written, so it may pass other spellings (1.0, 1e0, -0) and fractions
+            # that round to an integer (1.0000000000000001, 1e-999). The Rust check in the release
+            # preflight refuses them.
+            def adr_number($label):
+              if type == "number" and . >= 0 and . == floor and . <= 4294967295 then .
+              else error("invalid \($label)") end;
+            def adr_numbers($key):
+              if has($key) | not then []
+              elif (.[$key] | type) == "array" then .[$key] | map(adr_number($key))
+              else error("invalid \($key)") end;
+            if type != "object" then error("the declaration must be a JSON object") else . end
+            | . as $manifest
+            | opt_string($manifest; "integrationBranch"; "integrationBranch") as $branch
+            | (if $manifest | has("adrMigratedThrough")
+               then $manifest.adrMigratedThrough | adr_number("adrMigratedThrough")
+               else null end) as $migrated
+            | ($manifest | adr_numbers("adrReservedNumbers")) as $reserved
+            | ($manifest | adr_numbers("adrSanitizedNumbers")) as $sanitized
+            | (if $manifest | has("release") then
+                 if ($manifest.release | type) == "object" then $manifest.release
+                 else error("invalid release") end
+               else null end) as $release
+            | (if $release == null then null
+               else opt_string($release; "preflightWorkflow"; "release.preflightWorkflow") end) as $preflight
+            | (if $manifest | has("platforms") then
+                 ($manifest.platforms
+                  | if type == "array" and length > 0 then .
+                    else error("platforms must be a non-empty array") end
+                  | reduce .[] as $os ([];
+                      if ($os | type) != "string" or ($runners | has($os) | not)
+                      then error("unknown OS in platforms: \($os)")
+                      elif any(.[]; . == $os) then error("duplicate OS in platforms: \($os)")
+                      else . + [$os] end))
+                 | if $preflight == null
+                   then error("platforms requires release.preflightWorkflow") else . end
+               else [] end) as $platforms
+            | (if $manifest | has("platformCheck") then
+                 if ($manifest.platformCheck | type) == "object" then $manifest.platformCheck
+                 else error("invalid platformCheck") end
+               else {} end) as $check
+            | {
+                platforms: $platforms,
+                check: {
+                  cargoWorkspace: (if $check | has("cargoWorkspace") then
+                      $check.cargoWorkspace
+                      | if type == "string" and relative_workspace then .
+                        else error("invalid platformCheck.cargoWorkspace") end
+                    else "." end),
+                  bun: (if $check | has("bun") then
+                      $check.bun
+                      | if type == "boolean" then . else error("invalid platformCheck.bun") end
+                    else false end),
+                  setup: opt_string($check; "setup"; "platformCheck.setup")
+                }
+              }
+          ' "${MANIFEST:-.develop-tools.json}")
+          {
+            echo "include=$(jq -c --argjson runners "$runners" \
+              '[.platforms[] | {os: ., runner: $runners[.]}]' <<< "$plan")"
+            echo "check=$(jq -c '.check' <<< "$plan")"
+          } >> "$GITHUB_OUTPUT"
+
+  platform:
+    needs: plan
+    if: needs.plan.outputs.include != '[]'
+    name: platform (${{ matrix.os }})
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(needs.plan.outputs.include) }}
+    defaults:
+      run:
+        # Use bash on Windows as well, not the default pwsh.
+        shell: bash
+    env:
+      CARGO_WORKSPACE: ${{ fromJSON(needs.plan.outputs.check).cargoWorkspace }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # Tests may read the full history.
+          fetch-depth: 0
+          persist-credentials: false
+      # macOS TMPDIR (/var/folders) goes through the /var -> /private/var symlink, which path
+      # safety checks in tests reject. Pass the resolved path.
+      - name: Resolve TMPDIR
+        if: matrix.os == 'macos'
+        run: echo "TMPDIR=$(cd "$TMPDIR" && pwd -P)" >> "$GITHUB_ENV"
+      # rustup reads the workspace's toolchain file.
+      - run: rustup show
+        working-directory: ${{ env.CARGO_WORKSPACE }}
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: ${{ env.CARGO_WORKSPACE }}
+          shared-key: platform-${{ matrix.os }}
+          cache-on-failure: true
+      - uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2.87.29
+        with:
+          tool: cargo-nextest
+      - run: cargo clippy --workspace --all-targets --locked -- -D warnings
+        working-directory: ${{ env.CARGO_WORKSPACE }}
+      # Local installs build with the release profile; check that profile on each OS.
+      - run: cargo build --release --workspace --bins --locked
+        working-directory: ${{ env.CARGO_WORKSPACE }}
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        if: fromJSON(needs.plan.outputs.check).bun
+        with:
+          bun-version-file: .tool-versions
+      - name: Setup
+        if: fromJSON(needs.plan.outputs.check).setup != null
+        env:
+          SETUP: ${{ fromJSON(needs.plan.outputs.check).setup }}
+        run: bash -c "$SETUP"
+      - run: cargo nextest run --workspace --locked --no-fail-fast
+        working-directory: ${{ env.CARGO_WORKSPACE }}
+      # nextest does not run doc tests.
+      - run: cargo test --doc --workspace --locked
+        working-directory: ${{ env.CARGO_WORKSPACE }}
