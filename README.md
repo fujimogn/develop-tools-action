@@ -27,7 +27,7 @@ The action version controls the installation procedure independently of the tool
 
 ## Platform check
 
-`.github/workflows/platform-check.yml` is a reusable workflow that builds and tests a Cargo workspace on each OS the calling repository declares. Call it from a job, pinned to a full commit SHA:
+`.github/workflows/platform-check.yml` is a reusable workflow that builds and tests the Cargo workspaces on each OS the calling repository declares. Call it from a job, pinned to a full commit SHA:
 
 ```yaml
 jobs:
@@ -41,20 +41,22 @@ Declare the OS list and the check in `.develop-tools.json`:
 {
   "platforms": ["linux", "macos"],
   "platformCheck": {
-    "cargoWorkspace": "tools",
+    "cargoWorkspace": ["tools", "packages/cli"],
     "bun": true,
-    "setup": "./bin/ci-install --frozen-lockfile"
+    "setup": "./bin/ci-install --frozen-lockfile",
+    "runIgnored": "kind(lib) | kind(bin)"
   },
   "release": { "preflightWorkflow": "ci.yml" }
 }
 ```
 
 - `platforms`: a non-empty list of `linux`, `macos` and `windows` without duplicates. Without it the workflow starts no OS job. `release.preflightWorkflow` is required with it.
-- `platformCheck.cargoWorkspace`: the workspace path relative to the repository root, `/`-separated, without `.` or `..` segments, a leading or trailing `/`, `\` or `:` (no drive letters). Defaults to `.`.
+- `platformCheck.cargoWorkspace`: the workspace path relative to the repository root, `/`-separated, without `.` or `..` segments, a leading or trailing `/`, `\` or `:` (no drive letters), or a non-empty list of such paths without duplicates. Every step runs in each workspace, which keeps its own target directory. Defaults to `.`.
 - `platformCheck.bun`: install Bun from `.tool-versions` before the tests. Defaults to `false`.
 - `platformCheck.setup`: a command run with bash from the repository root before the tests.
+- `platformCheck.runIgnored`: a nextest filterset. After the regular tests, the ignored tests it matches run as well (`--run-ignored only`); a workspace with no match passes. Without it no ignored test runs.
 
-Each OS runs as a job named `platform (<os>)` (seen as `<caller job> / platform (<os>)` in the caller's run) with clippy, a release build, nextest and doc tests. Jobs do not stop each other on failure.
+Each OS runs as a job named `platform (<os>)` (seen as `<caller job> / platform (<os>)` in the caller's run) with clippy, a release build, nextest, the declared ignored tests and doc tests. Jobs do not stop each other on failure.
 
 ## Development
 

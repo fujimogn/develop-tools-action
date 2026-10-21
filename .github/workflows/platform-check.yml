@@ -39,8 +39,10 @@ jobs:
               if ($object | has($key)) | not then null
               elif ($object[$key] | type) == "string" and $object[$key] != "" then $object[$key]
               else error("invalid \($label)") end;
+            # Same as relative_workspace in Rust, which also refuses control characters (char::is_control).
             def relative_workspace:
               . == "." or (. != "" and (contains("\\") or contains(":") | not)
+                and (explode | any(. < 32 or (. >= 127 and . <= 159)) | not)
                 and (split("/") | all(. != "" and . != "." and . != "..")));
             # Same as adr_number in Rust: a non-negative integer that fits u32. This value check cannot
             # see how a number was written, so it may pass other spellings (1.0, 1e0, -0) and fractions
@@ -86,11 +88,16 @@ jobs:
             | {
                 platforms: $platforms,
                 check: {
-                  cargoWorkspace: (if $check | has("cargoWorkspace") then
+                  # One path or a non-empty list of distinct paths; the plan always emits a list.
+                  cargoWorkspaces: (if $check | has("cargoWorkspace") then
                       $check.cargoWorkspace
-                      | if type == "string" and relative_workspace then .
+                      | (if type == "string" then [.] else . end)
+                      | if type == "array" and length > 0 and length == (unique | length)
+                          and all(.[]; type == "string" and relative_workspace) then .
                         else error("invalid platformCheck.cargoWorkspace") end
-                    else "." end),
+                    else ["."] end),
+                  # A nextest filterset for the ignored tests to run as well (`--run-ignored only`).
+                  runIgnored: opt_string($check; "runIgnored"; "platformCheck.runIgnored"),
                   bun: (if $check | has("bun") then
                       $check.bun
                       | if type == "boolean" then . else error("invalid platformCheck.bun") end
@@ -118,8 +125,6 @@ jobs:
       run:
         # Use bash on Windows as well, not the default pwsh.
         shell: bash
-    env:
-      CARGO_WORKSPACE: ${{ fromJSON(needs.plan.outputs.check).cargoWorkspace }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -131,22 +136,43 @@ jobs:
       - name: Resolve TMPDIR
         if: matrix.os == 'macos'
         run: echo "TMPDIR=$(cd "$TMPDIR" && pwd -P)" >> "$GITHUB_ENV"
-      # rustup reads the workspace's toolchain file.
-      - run: rustup show
-        working-directory: ${{ env.CARGO_WORKSPACE }}
+      # Each Cargo workspace keeps its own target directory. The later steps run a command in
+      # every workspace (relative to the repository root, the step's directory) through
+      # each-workspace, and rust-cache takes the list one path per line.
+      - name: Cargo workspaces
+        id: workspaces
+        env:
+          CHECK: ${{ needs.plan.outputs.check }}
+        run: |
+          # jq on Windows may end lines with CR. The plan refuses control characters, so each
+          # workspace is one line, and a workspace cannot contain ':', so no line equals the delimiter.
+          workspaces=$(jq -r '.cargoWorkspaces[]' <<< "$CHECK" | tr -d '\r')
+          delimiter='CARGO_WORKSPACES:END'
+          printf 'list<<%s\n%s\n%s\n' "$delimiter" "$workspaces" "$delimiter" >> "$GITHUB_OUTPUT"
+          printf 'CARGO_WORKSPACES<<%s\n%s\n%s\n' "$delimiter" "$workspaces" "$delimiter" >> "$GITHUB_ENV"
+          helper="$RUNNER_TEMP/each-workspace"
+          cat > "$helper" <<'HELPER'
+          #!/usr/bin/env bash
+          set -euo pipefail
+          while IFS= read -r workspace; do
+            (cd -- "./$workspace" && "$@")
+          done <<< "$CARGO_WORKSPACES"
+          HELPER
+          chmod +x "$helper"
+          echo "EACH_WORKSPACE=$helper" >> "$GITHUB_ENV"
+      # rustup reads each workspace's toolchain file.
+      - run: '"$EACH_WORKSPACE" rustup show'
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
-          workspaces: ${{ env.CARGO_WORKSPACE }}
+          workspaces: ${{ steps.workspaces.outputs.list }}
           shared-key: platform-${{ matrix.os }}
           cache-on-failure: true
       - uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2.87.29
         with:
           tool: cargo-nextest
-      - run: cargo clippy --workspace --all-targets --locked -- -D warnings
-        working-directory: ${{ env.CARGO_WORKSPACE }}
+      - run: '"$EACH_WORKSPACE" cargo clippy --workspace --all-targets --locked -- -D warnings'
       # Local installs build with the release profile; check that profile on each OS.
-      - run: cargo build --release --workspace --bins --locked
-        working-directory: ${{ env.CARGO_WORKSPACE }}
+      - run: '"$EACH_WORKSPACE" cargo build --release --workspace --bins --locked'
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         if: fromJSON(needs.plan.outputs.check).bun
         with:
@@ -156,8 +182,15 @@ jobs:
         env:
           SETUP: ${{ fromJSON(needs.plan.outputs.check).setup }}
         run: bash -c "$SETUP"
-      - run: cargo nextest run --workspace --locked --no-fail-fast
-        working-directory: ${{ env.CARGO_WORKSPACE }}
+      - run: '"$EACH_WORKSPACE" cargo nextest run --workspace --locked --no-fail-fast'
+      # Ignored tests the caller keeps out of its light CI (for example time-dependent ones).
+      # A workspace with no matching ignored test passes.
+      - name: Ignored tests
+        if: fromJSON(needs.plan.outputs.check).runIgnored != null
+        env:
+          RUN_IGNORED: ${{ fromJSON(needs.plan.outputs.check).runIgnored }}
+        run: |
+          "$EACH_WORKSPACE" cargo nextest run --workspace --locked --no-fail-fast \
+            --run-ignored only --no-tests=pass -E "$RUN_IGNORED"
       # nextest does not run doc tests.
-      - run: cargo test --doc --workspace --locked
-        working-directory: ${{ env.CARGO_WORKSPACE }}
+      - run: '"$EACH_WORKSPACE" cargo test --doc --workspace --locked'

@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-10-21
+
+### Added
+
+- `platform-check.yml`: `platformCheck.cargoWorkspace` takes one path or a list of paths, and `platformCheck.runIgnored` runs the ignored tests a nextest filterset matches.
+
 ## [0.3.0] - 2026-10-21
 
 ### Added

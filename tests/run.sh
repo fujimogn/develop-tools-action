@@ -5,6 +5,10 @@ fixture=$(mktemp -d "${TMPDIR:-/tmp}/develop-tools-action-tests.XXXXXXXX")
 cleanup() {
   rm -f "$fixture/action/resolve" "$fixture/install.sh" "$fixture/github-path" "$fixture/failure.log"
   rm -f "$fixture/plan.sh" "$fixture/manifest.json" "$fixture/plan-output" "$fixture/plan.log"
+  rm -f "$fixture/workspaces.sh" "$fixture/step-output" "$fixture/step-env" "$fixture/each-workspace"
+  rm -f "$fixture/visited"
+  rmdir "$fixture/workspace/packages/cli" "$fixture/workspace/packages" "$fixture/workspace/tools" 2>/dev/null || true
+  rmdir -- "$fixture/workspace/-n" "$fixture/workspace/-" 2>/dev/null || true
   rmdir "$fixture/action" "$fixture/workspace" "$fixture/cache" "$fixture"
 }
 trap cleanup EXIT
@@ -64,7 +68,12 @@ for ((i = 0; i < count; i++)); do
     [[ $(jq -c '[.[].os]' <<< "$include") == "$expected" ]] || { echo "FAIL: $name matrix $include" >&2; exit 1; }
     jq -e 'all(.[]; .runner == {linux: "ubuntu-latest", macos: "macos-latest", windows: "windows-latest"}[.os])' <<< "$include" > /dev/null \
       || { echo "FAIL: $name runner $include" >&2; exit 1; }
-    jq -e 'type == "object"' <<< "$(sed -n 's/^check=//p' "$fixture/plan-output")" > /dev/null
+    check=$(sed -n 's/^check=//p' "$fixture/plan-output")
+    jq -e 'type == "object"' <<< "$check" > /dev/null
+    if [[ $(jq ".cases[$i].expect | has(\"check\")" "$cases") == true ]]; then
+      expected=$(jq -cS ".cases[$i].expect.check" "$cases")
+      [[ $(jq -cS . <<< "$check") == "$expected" ]] || { echo "FAIL: $name check $check" >&2; exit 1; }
+    fi
   elif [[ $(jq ".cases[$i].expect.error // false" "$cases") != true ]]; then
     cat "$fixture/plan.log" >&2
     echo "FAIL: $name was refused" >&2
@@ -82,3 +91,59 @@ if grep -Fq 'github.workflow' "$workflow"; then
   exit 1
 fi
 echo 'PASS: job name, fail-fast, shell and concurrency contract'
+# Every Cargo step runs in each declared workspace, and the ignored tests run only when declared.
+if grep -Eq 'working-directory: \$\{\{ env\.CARGO_WORKSPACE \}\}' "$workflow"; then
+  echo 'FAIL: a Cargo step runs in one workspace only' >&2
+  exit 1
+fi
+grep -Fqx '        if: fromJSON(needs.plan.outputs.check).runIgnored != null' "$workflow"
+# shellcheck disable=SC2016 # the shell variable is matched literally
+grep -Fq -- '--run-ignored only --no-tests=pass -E "$RUN_IGNORED"' "$workflow"
+echo 'PASS: workspace list and ignored-test contract'
+
+# Run the Cargo workspaces step itself: the list must survive the multiline file format and the
+# helper must run a command in every workspace in order, stopping at the first failure.
+awk '
+  /^      - name: Cargo workspaces$/ { step = 1; next }
+  step && /^        run: \|$/ { reading = 1; next }
+  reading && (/^          / || /^$/) { sub(/^          /, ""); print; next }
+  reading { exit }
+' "$workflow" > "$fixture/workspaces.sh"
+[[ -s "$fixture/workspaces.sh" ]]
+mkdir -p "$fixture/workspace/tools" "$fixture/workspace/packages/cli"
+: > "$fixture/step-output"
+: > "$fixture/step-env"
+(cd "$fixture/workspace" && CHECK='{"cargoWorkspaces":["tools","packages/cli"]}' RUNNER_TEMP="$fixture" \
+  GITHUB_OUTPUT="$fixture/step-output" GITHUB_ENV="$fixture/step-env" bash -e "$fixture/workspaces.sh")
+# Read a multiline value the way the runner does: from "<name><<<delimiter>" to the delimiter line.
+multiline() {
+  awk -v name="$1" '
+    !reading && index($0, name "<<") == 1 { delimiter = substr($0, length(name) + 3); reading = 1; next }
+    reading && $0 == delimiter { found = 1; exit }
+    reading { print }
+    END { if (!found) exit 1 }
+  ' "$2"
+}
+[[ $(multiline list "$fixture/step-output") == $'tools\npackages/cli' ]] || { echo 'FAIL: workspace list output' >&2; exit 1; }
+[[ $(multiline CARGO_WORKSPACES "$fixture/step-env") == $'tools\npackages/cli' ]] || { echo 'FAIL: workspace list env' >&2; exit 1; }
+[[ $(sed -n 's/^EACH_WORKSPACE=//p' "$fixture/step-env") == "$fixture/each-workspace" ]]
+# shellcheck disable=SC2016 # the helper expands the variable
+(cd "$fixture/workspace" && CARGO_WORKSPACES=$'tools\npackages/cli' "$fixture/each-workspace" \
+  bash -c 'basename "$PWD" >> "$0"' "$fixture/visited")
+[[ $(cat "$fixture/visited") == $'tools\ncli' ]] || { echo 'FAIL: helper did not visit every workspace' >&2; exit 1; }
+: > "$fixture/visited"
+# shellcheck disable=SC2016 # the helper expands the variable
+if (cd "$fixture/workspace" && CARGO_WORKSPACES=$'tools\npackages/cli' "$fixture/each-workspace" \
+  bash -c 'basename "$PWD" >> "$0"; false' "$fixture/visited"); then
+  echo 'FAIL: helper hid a failing workspace' >&2
+  exit 1
+fi
+[[ $(cat "$fixture/visited") == tools ]] || { echo 'FAIL: helper went on after a failure' >&2; exit 1; }
+# A workspace the plan accepts may start with '-': cd must not read it as an option or OLDPWD.
+mkdir -p -- "$fixture/workspace/-n" "$fixture/workspace/-"
+: > "$fixture/visited"
+# shellcheck disable=SC2016 # the helper expands the variable
+(cd "$fixture/workspace" && CARGO_WORKSPACES=$'-n\n-' "$fixture/each-workspace" \
+  bash -c 'basename -- "$PWD" >> "$0"' "$fixture/visited") || true
+[[ $(cat "$fixture/visited") == $'-n\n-' ]] || { echo 'FAIL: helper did not enter a workspace starting with -' >&2; exit 1; }
+echo 'PASS: workspace list step and each-workspace helper'

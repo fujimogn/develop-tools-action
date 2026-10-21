@@ -43,7 +43,15 @@
         "platforms": [
           "linux",
           "macos"
-        ]
+        ],
+        "check": {
+          "cargoWorkspaces": [
+            "tools"
+          ],
+          "bun": true,
+          "setup": "./bin/ci-install --frozen-lockfile",
+          "runIgnored": null
+        }
       }
     },
     {
@@ -76,7 +84,15 @@
         "sha256": {}
       },
       "expect": {
-        "platforms": []
+        "platforms": [],
+        "check": {
+          "cargoWorkspaces": [
+            "."
+          ],
+          "bun": false,
+          "setup": null,
+          "runIgnored": null
+        }
       }
     },
     {
@@ -96,6 +112,42 @@
         "platforms": [
           "macos"
         ]
+      }
+    },
+    {
+      "name": "multi-workspace-run-ignored",
+      "manifest": {
+        "platforms": [
+          "linux",
+          "macos"
+        ],
+        "platformCheck": {
+          "cargoWorkspace": [
+            "tools",
+            "packages/cli"
+          ],
+          "bun": true,
+          "setup": "./bin/ci-install --frozen-lockfile",
+          "runIgnored": "kind(lib) | kind(bin)"
+        },
+        "release": {
+          "preflightWorkflow": "platform-check.yml"
+        }
+      },
+      "expect": {
+        "platforms": [
+          "linux",
+          "macos"
+        ],
+        "check": {
+          "cargoWorkspaces": [
+            "tools",
+            "packages/cli"
+          ],
+          "bun": true,
+          "setup": "./bin/ci-install --frozen-lockfile",
+          "runIgnored": "kind(lib) | kind(bin)"
+        }
       }
     },
     {
@@ -550,6 +602,164 @@
       },
       "expect": {
         "error": true
+      }
+    },
+    {
+      "name": "invalid-cargo-workspace-empty-array",
+      "manifest": {
+        "platformCheck": {
+          "cargoWorkspace": []
+        }
+      },
+      "expect": {
+        "error": true
+      }
+    },
+    {
+      "name": "invalid-cargo-workspace-duplicate",
+      "manifest": {
+        "platformCheck": {
+          "cargoWorkspace": [
+            "tools",
+            "tools"
+          ]
+        }
+      },
+      "expect": {
+        "error": true
+      }
+    },
+    {
+      "name": "invalid-cargo-workspace-array-item",
+      "manifest": {
+        "platformCheck": {
+          "cargoWorkspace": [
+            "tools",
+            "../cli"
+          ]
+        }
+      },
+      "expect": {
+        "error": true
+      }
+    },
+    {
+      "name": "invalid-cargo-workspace-array-number",
+      "manifest": {
+        "platformCheck": {
+          "cargoWorkspace": [
+            "tools",
+            1
+          ]
+        }
+      },
+      "expect": {
+        "error": true
+      }
+    },
+    {
+      "name": "invalid-run-ignored-empty",
+      "manifest": {
+        "platformCheck": {
+          "runIgnored": ""
+        }
+      },
+      "expect": {
+        "error": true
+      }
+    },
+    {
+      "name": "invalid-run-ignored-boolean",
+      "manifest": {
+        "platformCheck": {
+          "runIgnored": true
+        }
+      },
+      "expect": {
+        "error": true
+      }
+    },
+    {
+      "name": "invalid-cargo-workspace-newline",
+      "manifest": {
+        "platforms": [
+          "linux"
+        ],
+        "platformCheck": {
+          "cargoWorkspace": "tools\npackages/cli"
+        },
+        "release": {
+          "preflightWorkflow": "ci.yml"
+        }
+      },
+      "expect": {
+        "error": true
+      }
+    },
+    {
+      "name": "invalid-cargo-workspace-array-newline",
+      "manifest": {
+        "platforms": [
+          "linux"
+        ],
+        "platformCheck": {
+          "cargoWorkspace": [
+            "tools\npackages/cli"
+          ]
+        },
+        "release": {
+          "preflightWorkflow": "ci.yml"
+        }
+      },
+      "expect": {
+        "error": true
+      }
+    },
+    {
+      "name": "invalid-cargo-workspace-delete",
+      "manifest": {
+        "platformCheck": {
+          "cargoWorkspace": [
+            "tools\u007f"
+          ]
+        }
+      },
+      "expect": {
+        "error": true
+      }
+    },
+    {
+      "name": "invalid-cargo-workspace-c1-control",
+      "manifest": {
+        "platformCheck": {
+          "cargoWorkspace": [
+            "tools"
+          ]
+        }
+      },
+      "expect": {
+        "error": true
+      }
+    },
+    {
+      "name": "cargo-workspace-non-ascii",
+      "manifest": {
+        "platformCheck": {
+          "cargoWorkspace": [
+            "crates/ツール"
+          ]
+        }
+      },
+      "expect": {
+        "platforms": [],
+        "check": {
+          "cargoWorkspaces": [
+            "crates/ツール"
+          ],
+          "bun": false,
+          "setup": null,
+          "runIgnored": null
+        }
       }
     }
   ]
