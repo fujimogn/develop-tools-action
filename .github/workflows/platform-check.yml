@@ -32,6 +32,19 @@ jobs:
         id: plan
         run: |
           set -euo pipefail
+          manifest=
+          if [ -n "${MANIFEST:-}" ]; then
+            manifest=$MANIFEST
+          elif [ -f .config/develop-tools.json ] && [ -f .develop-tools.json ]; then
+            echo "both .config/develop-tools.json and .develop-tools.json exist" >&2
+            exit 1
+          elif [ -f .config/develop-tools.json ]; then
+            manifest=.config/develop-tools.json
+          elif [ -f .develop-tools.json ]; then
+            manifest=.develop-tools.json
+          else
+            manifest=.develop-tools.json
+          fi
           # The only OS -> runner table.
           runners='{"linux":"ubuntu-latest","macos":"macos-latest","windows":"windows-latest"}'
           plan=$(jq -c --argjson runners "$runners" '
@@ -105,7 +118,7 @@ jobs:
                   setup: opt_string($check; "setup"; "platformCheck.setup")
                 }
               }
-          ' "${MANIFEST:-.develop-tools.json}")
+          ' "$manifest")
           {
             echo "include=$(jq -c --argjson runners "$runners" \
               '[.platforms[] | {os: ., runner: $runners[.]}]' <<< "$plan")"

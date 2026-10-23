@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.2] - 2026-10-23
+
+### Added
+
+- Look for the manifest at `.config/develop-tools.json` first and at `.develop-tools.json` second, in both `platform-check.yml` (unless the caller sets `MANIFEST`) and the bundled resolver. Each one fails when both files exist.
+
 ## [0.3.1] - 2026-10-21
 
 ### Added

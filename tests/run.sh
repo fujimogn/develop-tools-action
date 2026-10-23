@@ -7,6 +7,8 @@ cleanup() {
   rm -f "$fixture/plan.sh" "$fixture/manifest.json" "$fixture/plan-output" "$fixture/plan.log"
   rm -f "$fixture/workspaces.sh" "$fixture/step-output" "$fixture/step-env" "$fixture/each-workspace"
   rm -f "$fixture/visited"
+  rm -f "$fixture/workspace/.config/develop-tools.json" "$fixture/workspace/.develop-tools.json"
+  rmdir "$fixture/workspace/.config" 2>/dev/null || true
   rmdir "$fixture/workspace/packages/cli" "$fixture/workspace/packages" "$fixture/workspace/tools" 2>/dev/null || true
   rmdir -- "$fixture/workspace/-n" "$fixture/workspace/-" 2>/dev/null || true
   rmdir "$fixture/action" "$fixture/workspace" "$fixture/cache" "$fixture"
@@ -81,6 +83,53 @@ for ((i = 0; i < count; i++)); do
   fi
 done
 echo "PASS: plan matches $count platform declarations"
+
+# Default manifest discovery: new-only, legacy-only, and both.
+valid_manifest='{"platforms":["linux"],"release":{"preflightWorkflow":"release-platform-preflight.yml"}}'
+mkdir -p "$fixture/workspace/.config"
+
+# 1. New location only (.config/develop-tools.json)
+printf '%s\n' "$valid_manifest" > "$fixture/workspace/.config/develop-tools.json"
+rm -f "$fixture/workspace/.develop-tools.json"
+: > "$fixture/plan-output"
+if (cd "$fixture/workspace" && GITHUB_OUTPUT="$fixture/plan-output" bash "$fixture/plan.sh" > "$fixture/plan.log" 2>&1); then
+  include=$(sed -n 's/^include=//p' "$fixture/plan-output")
+  [[ $(jq -c '[.[].os]' <<< "$include") == '["linux"]' ]] || { echo "FAIL: default lookup new-only matrix $include" >&2; exit 1; }
+else
+  cat "$fixture/plan.log" >&2
+  echo "FAIL: default lookup new-only failed" >&2
+  exit 1
+fi
+echo 'PASS: default lookup accepts .config/develop-tools.json only'
+
+# 2. Legacy location only (.develop-tools.json)
+rm -f "$fixture/workspace/.config/develop-tools.json"
+printf '%s\n' "$valid_manifest" > "$fixture/workspace/.develop-tools.json"
+: > "$fixture/plan-output"
+if (cd "$fixture/workspace" && GITHUB_OUTPUT="$fixture/plan-output" bash "$fixture/plan.sh" > "$fixture/plan.log" 2>&1); then
+  include=$(sed -n 's/^include=//p' "$fixture/plan-output")
+  [[ $(jq -c '[.[].os]' <<< "$include") == '["linux"]' ]] || { echo "FAIL: default lookup legacy-only matrix $include" >&2; exit 1; }
+else
+  cat "$fixture/plan.log" >&2
+  echo "FAIL: default lookup legacy-only failed" >&2
+  exit 1
+fi
+echo 'PASS: default lookup accepts .develop-tools.json only'
+
+# 3. Both locations exist
+printf '%s\n' "$valid_manifest" > "$fixture/workspace/.config/develop-tools.json"
+printf '%s\n' "$valid_manifest" > "$fixture/workspace/.develop-tools.json"
+: > "$fixture/plan-output"
+if (cd "$fixture/workspace" && GITHUB_OUTPUT="$fixture/plan-output" bash "$fixture/plan.sh" > "$fixture/plan.log" 2>&1); then
+  echo "FAIL: default lookup with both manifests unexpectedly passed" >&2
+  exit 1
+fi
+grep -Fq '.config/develop-tools.json' "$fixture/plan.log" || { echo "FAIL: missing .config path in error: $(cat "$fixture/plan.log")" >&2; exit 1; }
+grep -Fq '.develop-tools.json' "$fixture/plan.log" || { echo "FAIL: missing .develop-tools path in error: $(cat "$fixture/plan.log")" >&2; exit 1; }
+echo 'PASS: default lookup rejects both manifests naming both paths'
+
+rm -f "$fixture/workspace/.config/develop-tools.json" "$fixture/workspace/.develop-tools.json"
+rmdir "$fixture/workspace/.config" 2>/dev/null || true
 # shellcheck disable=SC2016 # the workflow expression is matched literally
 grep -Fqx '    name: platform (${{ matrix.os }})' "$workflow"
 grep -Fqx '      fail-fast: false' "$workflow"
