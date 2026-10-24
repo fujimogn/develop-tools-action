@@ -9,7 +9,7 @@ After checking out the repository, pin this action to a full commit SHA:
   uses: fujimogn/develop-tools-action@<published-commit-sha>
 ```
 
-Commit `.develop-tools.json` at the repository root. Its `version` selects a `v<version>` Release, and `sha256` pins each target's archive:
+Commit `.config/develop-tools.json` (the legacy root `.develop-tools.json` is still read when `.config/` has none). Its `version` selects a `v<version>` Release, and `sha256` pins each target's archive:
 
 ```json
 {
@@ -23,7 +23,7 @@ Commit `.develop-tools.json` at the repository root. Its `version` selects a `v<
 
 The resolver fetches the matching archive and `SHA256SUMS` from the public Release, verifies both checksums, and caches the verified binaries. The action adds that cache directory to `GITHUB_PATH` for later steps. A missing asset or checksum mismatch fails the step. Set `DEVELOP_TOOLS_BIN_DIR` to use an existing local directory instead.
 
-The action version controls the installation procedure independently of the tool version in `.develop-tools.json`. Replace `<published-commit-sha>` with the full SHA of the published action commit before distributing a workflow. Existing action tags remain at their historical commits.
+The action version controls the installation procedure independently of the tool version in `.config/develop-tools.json`. Replace `<published-commit-sha>` with the full SHA of the published action commit before distributing a workflow. Existing action tags remain at their historical commits.
 
 ## Platform check
 
@@ -35,7 +35,7 @@ jobs:
     uses: fujimogn/develop-tools-action/.github/workflows/platform-check.yml@<published-commit-sha>
 ```
 
-Declare the OS list and the check in `.develop-tools.json`:
+Declare the OS list and the check in `.config/develop-tools.json`:
 
 ```json
 {
@@ -52,7 +52,7 @@ Declare the OS list and the check in `.develop-tools.json`:
 
 - `platforms`: a non-empty list of `linux`, `macos` and `windows` without duplicates. Without it the workflow starts no OS job. `release.preflightWorkflow` is required with it.
 - `platformCheck.cargoWorkspace`: the workspace path relative to the repository root, `/`-separated, without `.` or `..` segments, a leading or trailing `/`, `\` or `:` (no drive letters), or a non-empty list of such paths without duplicates. Every step runs in each workspace, which keeps its own target directory. Defaults to `.`.
-- `platformCheck.bun`: install Bun from `.tool-versions` before the tests. Defaults to `false`.
+- `platformCheck.bun`: install Bun before the tests. The version comes from `.config/mise.toml` `[tools].bun` (a fixed `x.y.z` string) when that file exists, and from `.tool-versions` only when it does not. When both declare `bun`, the versions must match. A mise file that exists but cannot be read, or whose `bun` value is not a fixed `x.y.z`, stops the job. Defaults to `false`.
 - `platformCheck.setup`: a command run with bash from the repository root before the tests.
 - `platformCheck.runIgnored`: a nextest filterset. After the regular tests, the ignored tests it matches run as well (`--run-ignored only`); a workspace with no match passes. Without it no ignored test runs.
 

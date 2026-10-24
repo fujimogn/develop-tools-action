@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.3] - 2026-10-25
+
+### Changed
+
+- `platform-check.yml`: when `platformCheck.bun` is true, resolve Bun from `.config/mise.toml` `[tools].bun` first and from `.tool-versions` only when that mise file is absent. A broken or non-pinned mise value stops the job, and the two versions must match when both exist. The published version is unchanged.
+- README and the `platform-check.yml` header now name `.config/develop-tools.json` as the manifest location; the legacy root `.develop-tools.json` is still read.
+
 ## [0.3.2] - 2026-10-23
 
 ### Added

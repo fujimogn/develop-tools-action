@@ -1,7 +1,7 @@
 name: platform check
 
 # Build and test the Cargo workspace on every OS the calling repository declares in
-# `.develop-tools.json` (`platforms`). Callers run it before a release; the OS list comes only
+# `.config/develop-tools.json` (or the legacy root `.develop-tools.json`) (`platforms`). Callers run it before a release; the OS list comes only
 # from the declaration, so no OS is treated as the primary one.
 on:
   workflow_call:
@@ -186,10 +186,55 @@ jobs:
       - run: '"$EACH_WORKSPACE" cargo clippy --workspace --all-targets --locked -- -D warnings'
       # Local installs build with the release profile; check that profile on each OS.
       - run: '"$EACH_WORKSPACE" cargo build --release --workspace --bins --locked'
+      # setup-bun cannot read mise. Resolve a pinned x.y.z the same way as the generated CI,
+      # preferring .config/mise.toml and falling back to .tool-versions only when mise is absent.
+      - name: Resolve Bun version
+        id: develop-bun-version
+        if: fromJSON(needs.plan.outputs.check).bun
+        run: |
+          python3 - <<'PY'
+          import os, re, sys, tomllib
+          FIXED = re.compile(r"[0-9]+\.[0-9]+\.[0-9]+")
+          def fail(message):
+              sys.exit("develop-bun-version: " + message)
+          declared = {}
+          try:
+              with open(".config/mise.toml", "rb") as handle:
+                  tools = tomllib.load(handle).get("tools")
+          except FileNotFoundError:
+              pass
+          except (OSError, tomllib.TOMLDecodeError) as error:
+              fail(".config/mise.toml を読めない: %s" % error)
+          else:
+              value = tools.get("bun") if isinstance(tools, dict) else None
+              if not isinstance(value, str) or not FIXED.fullmatch(value):
+                  fail(".config/mise.toml の [tools].bun は固定した x.y.z の文字列にする")
+              declared[".config/mise.toml"] = value
+          try:
+              with open(".tool-versions", encoding="utf-8") as handle:
+                  lines = handle.read().splitlines()
+          except FileNotFoundError:
+              lines = []
+          except (OSError, UnicodeDecodeError) as error:
+              fail(".tool-versions を読めない: %s" % error)
+          for line in lines:
+              fields = line.split("#", 1)[0].split()
+              if fields[:1] == ["bun"]:
+                  if len(fields) != 2 or not FIXED.fullmatch(fields[1]):
+                      fail(".tool-versions の bun は固定した x.y.z を 1 つだけ書く")
+                  if ".tool-versions" in declared:
+                      fail(".tool-versions に bun が複数ある")
+                  declared[".tool-versions"] = fields[1]
+          if not declared:
+              fail("bun の版が .config/mise.toml にも .tool-versions にも無い")
+          if len(set(declared.values())) != 1:
+              fail("bun の版が食い違う: %r" % declared)
+          open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8").write("version=%s\n" % next(iter(declared.values())))
+          PY
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         if: fromJSON(needs.plan.outputs.check).bun
         with:
-          bun-version-file: .tool-versions
+          bun-version: ${{ steps.develop-bun-version.outputs.version }}
       - name: Setup
         if: fromJSON(needs.plan.outputs.check).setup != null
         env:

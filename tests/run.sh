@@ -6,7 +6,7 @@ cleanup() {
   rm -f "$fixture/action/resolve" "$fixture/install.sh" "$fixture/github-path" "$fixture/failure.log"
   rm -f "$fixture/plan.sh" "$fixture/manifest.json" "$fixture/plan-output" "$fixture/plan.log"
   rm -f "$fixture/workspaces.sh" "$fixture/step-output" "$fixture/step-env" "$fixture/each-workspace"
-  rm -f "$fixture/visited"
+  rm -f "$fixture/visited" "$fixture/bun.sh" "$fixture/bun-output" "$fixture/bun.log"
   rm -f "$fixture/workspace/.config/develop-tools.json" "$fixture/workspace/.develop-tools.json"
   rmdir "$fixture/workspace/.config" 2>/dev/null || true
   rmdir "$fixture/workspace/packages/cli" "$fixture/workspace/packages" "$fixture/workspace/tools" 2>/dev/null || true
@@ -196,3 +196,62 @@ mkdir -p -- "$fixture/workspace/-n" "$fixture/workspace/-"
   bash -c 'basename -- "$PWD" >> "$0"' "$fixture/visited") || true
 [[ $(cat "$fixture/visited") == $'-n\n-' ]] || { echo 'FAIL: helper did not enter a workspace starting with -' >&2; exit 1; }
 echo 'PASS: workspace list step and each-workspace helper'
+
+# Bun version step: same resolver as generated CI. Prefer mise, fall back only when the file is absent.
+awk '
+  /^      - name: Resolve Bun version$/ { step = 1; next }
+  step && /^        run: \|$/ { reading = 1; next }
+  reading && (/^          / || /^$/) { sub(/^          /, ""); print; next }
+  reading { exit }
+' "$workflow" > "$fixture/bun.sh"
+[[ -s "$fixture/bun.sh" ]]
+bash -n "$fixture/bun.sh"
+grep -Fqx '          open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8").write("version=%s\n" % next(iter(declared.values())))' "$workflow"
+grep -Fqx '          bun-version: ${{ steps.develop-bun-version.outputs.version }}' "$workflow"
+if grep -Fq 'bun-version-file:' "$workflow"; then
+  echo 'FAIL: platform-check still pins bun-version-file' >&2
+  exit 1
+fi
+# Prefer the system interpreter. A mise shim reads .config/mise.toml before Python starts.
+bun_workspace=$(mktemp -d "$fixture/bun.XXXXXXXX")
+expect_version() {
+  local name=$1 expected=$2
+  : > "$fixture/bun-output"
+  if ! (cd "$bun_workspace" && PATH="/usr/bin:/bin:${PATH}" GITHUB_OUTPUT="$fixture/bun-output" bash "$fixture/bun.sh") > "$fixture/bun.log" 2>&1; then
+    cat "$fixture/bun.log" >&2
+    echo "FAIL: $name" >&2
+    exit 1
+  fi
+  [[ $(cat "$fixture/bun-output") == "version=$expected" ]] || {
+    echo "FAIL: $name output $(cat "$fixture/bun-output")" >&2
+    exit 1
+  }
+}
+expect_fail() {
+  local name=$1 needle=$2
+  : > "$fixture/bun-output"
+  if (cd "$bun_workspace" && PATH="/usr/bin:/bin:${PATH}" GITHUB_OUTPUT="$fixture/bun-output" bash "$fixture/bun.sh") > "$fixture/bun.log" 2>&1; then
+    echo "FAIL: $name succeeded" >&2
+    exit 1
+  fi
+  [[ ! -s "$fixture/bun-output" ]] || { echo "FAIL: $name wrote a version" >&2; exit 1; }
+  grep -Fq "$needle" "$fixture/bun.log" || { echo "FAIL: $name log $(cat "$fixture/bun.log")" >&2; exit 1; }
+}
+mkdir -p "$bun_workspace/.config"
+printf '%s\n' '[tools]' 'bun = "1.4.4"' > "$bun_workspace/.config/mise.toml"
+expect_version 'mise only' 1.4.4
+rm "$bun_workspace/.config/mise.toml"
+printf '%s\n' 'bun 1.2.3' > "$bun_workspace/.tool-versions"
+expect_version 'tool-versions only' 1.2.3
+printf '%s\n' '[tools]' 'bun = "1.2.3"' > "$bun_workspace/.config/mise.toml"
+expect_version 'mise and tool-versions agree' 1.2.3
+printf '%s\n' '[tools]' 'bun = "9.9.9"' > "$bun_workspace/.config/mise.toml"
+expect_fail 'disagreeing versions' '食い違う'
+printf '%s\n' '[tools]' 'bun = "latest"' > "$bun_workspace/.config/mise.toml"
+expect_fail 'unpinned mise does not fall back' 'x.y.z'
+printf '%s\n' '[' > "$bun_workspace/.config/mise.toml"
+expect_fail 'broken mise does not fall back' '読めない'
+rm "$bun_workspace/.config/mise.toml" "$bun_workspace/.tool-versions"
+expect_fail 'neither file' '無い'
+rmdir "$bun_workspace/.config" "$bun_workspace"
+echo 'PASS: bun version resolver prefers mise and keeps tool-versions as fallback'
