@@ -193,17 +193,51 @@ jobs:
         if: fromJSON(needs.plan.outputs.check).bun
         run: |
           python3 - <<'PY'
-          import os, re, sys, tomllib
+          import os, re, sys
           FIXED = re.compile(r"[0-9]+\.[0-9]+\.[0-9]+")
           def fail(message):
               sys.exit("develop-bun-version: " + message)
+          try:
+              import tomllib
+          except ImportError:
+              tomllib = None
+          def read_tools(handle):
+              if tomllib is not None:
+                  return tomllib.loads(handle.read()).get("tools")
+              # Older runner Python: read only line-based [tools] declarations.
+              # Refuse ambiguous syntax rather than falling back to a legacy version.
+              tools, section, seen_tools = {}, None, False
+              for raw in handle:
+                  line = raw.strip()
+                  if not line or line.startswith("#"):
+                      continue
+                  if line.startswith("["):
+                      header = re.fullmatch(r"\[([A-Za-z0-9_.-]+)\]\s*(?:#.*)?", line)
+                      if not header:
+                          raise ValueError("invalid section header")
+                      section = header[1]
+                      if section == "tools":
+                          if seen_tools:
+                              raise ValueError("duplicate tools section")
+                          seen_tools = True
+                      continue
+                  entry = re.fullmatch(r"([A-Za-z0-9_-]+|\"[^\"]+\"|'[^']+')\s*=\s*(.+)", line)
+                  if not entry:
+                      raise ValueError("invalid declaration")
+                  key = entry[1][1:-1] if entry[1][0] in "\"'" else entry[1]
+                  if section == "tools" and key == "bun":
+                      if "bun" in tools:
+                          raise ValueError("duplicate bun declaration")
+                      value = re.fullmatch(r"([\"'])([0-9]+\.[0-9]+\.[0-9]+)\1\s*(?:#.*)?", entry[2])
+                      tools["bun"] = value[2] if value else None
+              return tools
           declared = {}
           try:
-              with open(".config/mise.toml", "rb") as handle:
-                  tools = tomllib.load(handle).get("tools")
+              with open(".config/mise.toml", encoding="utf-8") as handle:
+                  tools = read_tools(handle)
           except FileNotFoundError:
               pass
-          except (OSError, tomllib.TOMLDecodeError) as error:
+          except (OSError, ValueError) as error:
               fail(".config/mise.toml を読めない: %s" % error)
           else:
               value = tools.get("bun") if isinstance(tools, dict) else None

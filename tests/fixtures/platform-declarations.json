@@ -762,5 +762,75 @@
         }
       }
     }
+  ],
+  "bunCases": [
+    {
+      "name": "mise only",
+      "mise": "[tools]\nbun = \"1.4.4\"\n",
+      "version": "1.4.4"
+    },
+    {
+      "name": "tool-versions only",
+      "legacy": "bun 1.2.3\n",
+      "version": "1.2.3"
+    },
+    {
+      "name": "agree",
+      "mise": "[tools]\nbun = \"1.2.3\"\n",
+      "legacy": "bun 1.2.3\n",
+      "version": "1.2.3"
+    },
+    {
+      "name": "disagree",
+      "mise": "[tools]\nbun = \"9.9.9\"\n",
+      "legacy": "bun 1.2.3\n",
+      "error": "食い違う"
+    },
+    {
+      "name": "unpinned mise",
+      "mise": "[tools]\nbun = \"latest\"\n",
+      "legacy": "bun 1.2.3\n",
+      "error": "x.y.z"
+    },
+    {
+      "name": "broken mise",
+      "mise": "[\n",
+      "legacy": "bun 1.2.3\n",
+      "error": "読めない"
+    },
+    {
+      "name": "unquoted mise",
+      "mise": "[tools]\nbun = 1.2\n",
+      "error": "x.y.z"
+    },
+    {
+      "name": "duplicate bun",
+      "mise": "[tools]\nbun = \"1.2.3\"\nbun = \"1.2.3\"\n",
+      "error": "読めない"
+    },
+    {
+      "name": "wrong section",
+      "mise": "[other]\nbun = \"1.2.3\"\n",
+      "error": "x.y.z"
+    },
+    {
+      "name": "literal string and comment",
+      "mise": "[tools] # tools\nbun = '1.2.3' # pinned\n[other]\nbun = '9.9.9'\n",
+      "version": "1.2.3"
+    },
+    {
+      "name": "unpinned legacy",
+      "legacy": "bun latest\n",
+      "error": "x.y.z"
+    },
+    {
+      "name": "duplicate legacy",
+      "legacy": "bun 1.2.3\nbun 1.2.3\n",
+      "error": "複数"
+    },
+    {
+      "name": "neither file",
+      "error": "無い"
+    }
   ]
 }
