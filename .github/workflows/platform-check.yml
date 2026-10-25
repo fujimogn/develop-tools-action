@@ -1,8 +1,9 @@
 name: platform check
 
 # Build and test the Cargo workspace on every OS the calling repository declares in
-# `.config/develop-tools.json` (or the legacy root `.develop-tools.json`) (`platforms`). Callers run it before a release; the OS list comes only
-# from the declaration, so no OS is treated as the primary one.
+# `.config/develop-tools.json` (`platforms`). A root `.develop-tools.json` is the old place and
+# fails the plan, which tells the caller to move it. Callers run it before a release; the OS list
+# comes only from the declaration, so no OS is treated as the primary one.
 on:
   workflow_call:
 
@@ -38,12 +39,13 @@ jobs:
           elif [ -f .config/develop-tools.json ] && [ -f .develop-tools.json ]; then
             echo "both .config/develop-tools.json and .develop-tools.json exist" >&2
             exit 1
+          elif [ -f .develop-tools.json ]; then
+            echo ".develop-tools.json は旧い置き場です。.config/develop-tools.json へ移す" >&2
+            exit 1
           elif [ -f .config/develop-tools.json ]; then
             manifest=.config/develop-tools.json
-          elif [ -f .develop-tools.json ]; then
-            manifest=.develop-tools.json
           else
-            manifest=.develop-tools.json
+            manifest=.config/develop-tools.json
           fi
           # The only OS -> runner table.
           runners='{"linux":"ubuntu-latest","macos":"macos-latest","windows":"windows-latest"}'

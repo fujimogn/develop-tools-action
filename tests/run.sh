@@ -104,19 +104,17 @@ else
 fi
 echo 'PASS: default lookup accepts .config/develop-tools.json only'
 
-# 2. Legacy location only (.develop-tools.json)
+# 2. Legacy location only (.develop-tools.json) is the old place and must fail.
 rm -f "$fixture/workspace/.config/develop-tools.json"
 printf '%s\n' "$valid_manifest" > "$fixture/workspace/.develop-tools.json"
 : > "$fixture/plan-output"
 if (cd "$fixture/workspace" && GITHUB_OUTPUT="$fixture/plan-output" bash "$fixture/plan.sh" > "$fixture/plan.log" 2>&1); then
-  include=$(sed -n 's/^include=//p' "$fixture/plan-output")
-  [[ $(jq -c '[.[].os]' <<< "$include") == '["linux"]' ]] || { echo "FAIL: default lookup legacy-only matrix $include" >&2; exit 1; }
-else
-  cat "$fixture/plan.log" >&2
-  echo "FAIL: default lookup legacy-only failed" >&2
+  echo "FAIL: default lookup legacy-only unexpectedly passed" >&2
   exit 1
 fi
-echo 'PASS: default lookup accepts .develop-tools.json only'
+grep -Fq '旧い置き場です' "$fixture/plan.log" || { echo "FAIL: legacy-only error missing 旧い置き場です: $(cat "$fixture/plan.log")" >&2; exit 1; }
+grep -Fq '.config/develop-tools.json' "$fixture/plan.log" || { echo "FAIL: legacy-only error missing new path: $(cat "$fixture/plan.log")" >&2; exit 1; }
+echo 'PASS: default lookup rejects .develop-tools.json only'
 
 # 3. Both locations exist
 printf '%s\n' "$valid_manifest" > "$fixture/workspace/.config/develop-tools.json"

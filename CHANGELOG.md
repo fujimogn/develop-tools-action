@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.5] - 2026-10-25
+
+### Changed
+
+- The bundled resolver and `platform-check.yml` no longer read a root `.develop-tools.json`. A file left only at that path fails and names `.config/develop-tools.json` as the place to move it. Both files still fail.
+
 ## [0.3.4] - 2026-10-25
 
 ### Fixed
