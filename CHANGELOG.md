@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.6] - 2026-11-09
+
+### Changed
+
+- Pass the workflow token to `resolve`, so release assets are downloaded through the authenticated GitHub API with bounded retries. No new required input. Checksum verification is unchanged.
+
 ## [0.3.5] - 2026-10-25
 
 ### Changed

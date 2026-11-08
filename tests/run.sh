@@ -5,6 +5,7 @@ fixture=$(mktemp -d "${TMPDIR:-/tmp}/develop-tools-action-tests.XXXXXXXX")
 cleanup() {
   rm -f "$fixture/action/resolve" "$fixture/install.sh" "$fixture/github-path" "$fixture/failure.log"
   rm -f "$fixture/plan.sh" "$fixture/manifest.json" "$fixture/plan-output" "$fixture/plan.log"
+  rm -f "$fixture/platform-cases" "$fixture/bun-cases"
   rm -f "$fixture/workspaces.sh" "$fixture/step-output" "$fixture/step-env" "$fixture/each-workspace"
   rm -f "$fixture/old-python/python3"
   rmdir "$fixture/old-python" 2>/dev/null || true
@@ -17,6 +18,16 @@ cleanup() {
 }
 trap cleanup EXIT
 mkdir -p "$fixture/action" "$fixture/workspace" "$fixture/cache"
+# The composite step must expose the automatic read-scoped token to its resolver.
+grep -Fqx '        GITHUB_TOKEN: ${{ github.token }}' "$root/action.yml" || {
+  echo 'FAIL: resolver token wiring is missing' >&2
+  exit 1
+}
+if grep -Eq '^inputs:|^[[:space:]]+token:' "$root/action.yml"; then
+  echo 'FAIL: action must not require a token input' >&2
+  exit 1
+fi
+RESOLVER_UNDER_TEST="$root/resolve" TEST_SHELL=/bin/sh sh "$root/tests/resolve.sh"
 awk '
   /^      run: \|$/ { reading = 1; next }
   reading && /^        / { sub(/^        /, ""); print; next }
@@ -57,33 +68,41 @@ awk '
 ' "$workflow" > "$fixture/plan.sh"
 [[ -s "$fixture/plan.sh" ]]
 bash -n "$fixture/plan.sh"
-count=$(jq '.cases | length' "$cases")
-for ((i = 0; i < count; i++)); do
-  name=$(jq -r ".cases[$i].name" "$cases")
-  jq ".cases[$i].manifest" "$cases" > "$fixture/manifest.json"
+# Read the fixture once. Repeated jq startup (especially through a tool shim) used to
+# dominate this suite. NUL delimiters preserve empty fields and multiline contents.
+jq -j '.cases[] | .name, "\u0000", (.manifest | tojson), "\u0000",
+  (.expect.error // false | tostring), "\u0000", (.expect.platforms | tojson), "\u0000",
+  (.expect | has("check") | tostring), "\u0000", (.expect.check | tojson), "\u0000"' \
+  "$cases" > "$fixture/platform-cases"
+count=0
+while IFS= read -r -d '' name && IFS= read -r -d '' manifest &&
+  IFS= read -r -d '' error && IFS= read -r -d '' expected_platforms &&
+  IFS= read -r -d '' has_check && IFS= read -r -d '' expected_check; do
+  count=$((count + 1))
+  printf '%s\n' "$manifest" > "$fixture/manifest.json"
   : > "$fixture/plan-output"
   if MANIFEST="$fixture/manifest.json" GITHUB_OUTPUT="$fixture/plan-output" bash "$fixture/plan.sh" > "$fixture/plan.log" 2>&1; then
-    if [[ $(jq ".cases[$i].expect.error // false" "$cases") == true ]]; then
+    if [[ $error == true ]]; then
       echo "FAIL: $name was accepted" >&2
       exit 1
     fi
     include=$(sed -n 's/^include=//p' "$fixture/plan-output")
-    expected=$(jq -c ".cases[$i].expect.platforms" "$cases")
-    [[ $(jq -c '[.[].os]' <<< "$include") == "$expected" ]] || { echo "FAIL: $name matrix $include" >&2; exit 1; }
+    [[ $(jq -c '[.[].os]' <<< "$include") == "$expected_platforms" ]] || { echo "FAIL: $name matrix $include" >&2; exit 1; }
     jq -e 'all(.[]; .runner == {linux: "ubuntu-latest", macos: "macos-latest", windows: "windows-latest"}[.os])' <<< "$include" > /dev/null \
       || { echo "FAIL: $name runner $include" >&2; exit 1; }
     check=$(sed -n 's/^check=//p' "$fixture/plan-output")
     jq -e 'type == "object"' <<< "$check" > /dev/null
-    if [[ $(jq ".cases[$i].expect | has(\"check\")" "$cases") == true ]]; then
-      expected=$(jq -cS ".cases[$i].expect.check" "$cases")
-      [[ $(jq -cS . <<< "$check") == "$expected" ]] || { echo "FAIL: $name check $check" >&2; exit 1; }
+    if [[ $has_check == true ]]; then
+      jq -e --argjson expected "$expected_check" '. == $expected' <<< "$check" > /dev/null \
+        || { echo "FAIL: $name check $check" >&2; exit 1; }
     fi
-  elif [[ $(jq ".cases[$i].expect.error // false" "$cases") != true ]]; then
+  elif [[ $error != true ]]; then
     cat "$fixture/plan.log" >&2
     echo "FAIL: $name was refused" >&2
     exit 1
   fi
-done
+done < "$fixture/platform-cases"
+[[ $count -gt 0 ]]
 echo "PASS: plan matches $count platform declarations"
 
 # Default manifest discovery: new-only, legacy-only, and both.
@@ -246,27 +265,33 @@ exec "$TEST_REAL_PYTHON" -c 'import sys; sys.modules["tomllib"] = None; exec(com
 MOCK
 chmod +x "$fixture/old-python/python3"
 mkdir -p "$bun_workspace/.config"
+jq -j '.bunCases[] | .name, "\u0000", (has("mise") | tostring), "\u0000",
+  .mise, "\u0000", (has("legacy") | tostring), "\u0000", .legacy, "\u0000",
+  (has("error") | tostring), "\u0000", .error, "\u0000", .version, "\u0000"' \
+  "$cases" > "$fixture/bun-cases"
 for interpreter in system without-tomllib; do
   bun_python_path="/usr/bin:/bin:${PATH}"
   if [[ $interpreter == without-tomllib ]]; then
     bun_python_path="$fixture/old-python:$bun_python_path"
   fi
-  count=$(jq '.bunCases | length' "$cases")
-  for ((i = 0; i < count; i++)); do
-    name="$interpreter: $(jq -r ".bunCases[$i].name" "$cases")"
+  while IFS= read -r -d '' case_name && IFS= read -r -d '' has_mise &&
+    IFS= read -r -d '' mise && IFS= read -r -d '' has_legacy &&
+    IFS= read -r -d '' legacy && IFS= read -r -d '' has_error &&
+    IFS= read -r -d '' error && IFS= read -r -d '' version; do
+    name="$interpreter: $case_name"
     rm -f "$bun_workspace/.config/mise.toml" "$bun_workspace/.tool-versions"
-    if jq -e ".bunCases[$i] | has(\"mise\")" "$cases" >/dev/null; then
-      jq -jr ".bunCases[$i].mise" "$cases" > "$bun_workspace/.config/mise.toml"
+    if [[ $has_mise == true ]]; then
+      printf '%s' "$mise" > "$bun_workspace/.config/mise.toml"
     fi
-    if jq -e ".bunCases[$i] | has(\"legacy\")" "$cases" >/dev/null; then
-      jq -jr ".bunCases[$i].legacy" "$cases" > "$bun_workspace/.tool-versions"
+    if [[ $has_legacy == true ]]; then
+      printf '%s' "$legacy" > "$bun_workspace/.tool-versions"
     fi
-    if jq -e ".bunCases[$i] | has(\"error\")" "$cases" >/dev/null; then
-      expect_fail "$name" "$(jq -r ".bunCases[$i].error" "$cases")"
+    if [[ $has_error == true ]]; then
+      expect_fail "$name" "$error"
     else
-      expect_version "$name" "$(jq -r ".bunCases[$i].version" "$cases")"
+      expect_version "$name" "$version"
     fi
-  done
+  done < "$fixture/bun-cases"
 done
 rm -f "$bun_workspace/.config/mise.toml" "$bun_workspace/.tool-versions"
 rmdir "$bun_workspace/.config" "$bun_workspace"

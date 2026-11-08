@@ -7,6 +7,7 @@ runs:
       shell: bash
       env:
         DEVELOP_TOOLS_ACTION_PATH: ${{ github.action_path }}
+        GITHUB_TOKEN: ${{ github.token }}
       run: |
         set -euo pipefail
         cd "$GITHUB_WORKSPACE"
