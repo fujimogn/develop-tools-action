@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.7] - 2026-11-12
+
+### Changed
+
+- Update `taiki-e/install-action` from 2.90.2 to 2.90.3 in the platform-check workflow.
+
 ## [0.3.6] - 2026-11-09
 
 ### Changed
